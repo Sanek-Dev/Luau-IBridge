@@ -185,7 +185,7 @@ function IBridge.WritePacket(Self, _type, body)
 
     local id = 1
     local data = Self:ReadData()
-    if data and (tick() - data.sendTime) < 60 then -- id refreshes every minute
+    if data and (tick() - data.sendTime) < 3600 then -- id refreshes every hour (maximum requests number is MAXNUM/3600min)
         id = data.id + 1
     end
 
