@@ -394,7 +394,11 @@ function IBridgeFactory.GetBridgeForPlayer(Self, playerUsername)
         playerUsername = ret
     end
 
-    local bridge = IBridge.new(Self, Self:GetPrefix()..playerUsername..".txt", -1)
+    local fileName = Self:GetPrefix()..playerUsername..".txt"
+    local filePath = Self:FileNameToBridge(fileName)
+    if IsStringNullOrEmpty(filePath) or not isfile(filePath) then return nil end
+
+    local bridge = IBridge.new(Self, fileName, -1)
     if bridge then table.insert(Self.AllBridges, bridge) end
 
     return bridge
