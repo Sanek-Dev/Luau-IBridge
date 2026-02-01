@@ -13,7 +13,7 @@ Note: Dont forget to sometimes clear unused files inside workspace/${BridgesFold
 local IBridgeFactory = loadstring(game:HttpGet("https://raw.githubusercontent.com/Sanek-Dev/Luau-IBridge/refs/heads/main/Source.luau"))()
 local MainBridgeFactory = IBridgeFactory.new({
     ["UseEncryption"] = true,
-    ["EncryptionKey"] = "Secret_Key123" -- If unsure what to use, generate one using print(tostring(crypt.generatekey())) if your executor supports it then paste it here
+    ["EncryptionKey"] = "Secret_Key123", -- If unsure what to use, generate one using print(tostring(crypt.generatekey())) if your executor supports it then paste it here
 }) -- server and client must have the same factory params
 local ServerBridge = MainBridgeFactory:CreateBridge()
 if ServerBridge then
@@ -22,19 +22,23 @@ else
     error("Failed to start IBridge server")
 end
 
--- This function does not block(yield) current thread
 if ServerBridge:StartDispatchThread() then
     print("Listening to packets from other instances...")
 end
+
+local oldDispatched = ServerBridge:GetDispatchedPacketsCount()
+repeat task.wait() until oldDispatched ~= ServerBridge:GetDispatchedPacketsCount() -- Wait for a dispatched packet
+print("Dispatched!")
+ServerBridge:CleanUp() -- Optional
 ```
 *Client Code:*
 ```luau
 local IBridgeFactory = loadstring(game:HttpGet("https://raw.githubusercontent.com/Sanek-Dev/Luau-IBridge/refs/heads/main/Source.luau"))()
 local MainBridgeFactory = IBridgeFactory.new({
     ["UseEncryption"] = true,
-    ["EncryptionKey"] = "Secret_Key123" -- If unsure what to use, generate one using print(tostring(crypt.generatekey())) if your executor supports it then paste it here
+    ["EncryptionKey"] = "Secret_Key123", -- If unsure what to use, generate one using print(tostring(crypt.generatekey())) if your executor supports it then paste it here
 }) -- server and client must have the same factory params
-local ClientBridge = MainBridgeFactory:GetBridgeForPlayer("PlayerUsername")
+local ClientBridge = MainBridgeFactory:GetBridgeForPlayer("PlayerUsername") -- Change to instance's player's username
 if ClientBridge then
     print("Opened client IBridge bridge")
 else
@@ -42,6 +46,8 @@ else
 end
 
 if ClientBridge:SendCode("print('Hello from "..game.Players.LocalPlayer.DisplayName.." instance!')") then
-    print("Sent print packet")
+    print("Sent code packet")
 end
+
+print("Sent packets count: "..tostring(ClientBridge:GetSentPacketsCount()))
 ```
