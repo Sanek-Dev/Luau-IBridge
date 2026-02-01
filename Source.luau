@@ -359,6 +359,13 @@ function IBridgeFactory.new(paramsTable)
     }
     setmetatable(factory, IBridgeFactory)
 
+    if paramsTable then
+        -- faster gc
+        table.clear(paramsTable)
+        table.freeze(paramsTable)
+        paramsTable = nil
+    end
+
     return factory
 end
 
