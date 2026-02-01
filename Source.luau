@@ -132,7 +132,7 @@ function IBridge.WritePacket(Self, _type, body)
     return Self:WriteDataTable(dataTable)
 end
 
-function IBridge.SendHeartbeat(Self)
+function IBridge.SendHeartbeat(Self) -- Not used yet
     return Self:WritePacket(0, "")
 end
 
@@ -275,6 +275,11 @@ end
 
 -- One player instance can have only one IBridge at the time!
 function IBridgeFactory.CreateBridge(Self, dispatchTick)
+    if dispatchTick <= 0 then
+        warn("[IBridgeFactory.CreateBridge] Cannot create a bridge with negative dispatchTick!")
+        return nil
+    end
+
     local bridge = IBridge.new(Self, Self:GetPrefix()..Players.LocalPlayer.Name..".txt", dispatchTick)
     if bridge then table.insert(Self.AllBridges, bridge) end
 
