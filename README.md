@@ -7,7 +7,7 @@ With help of this module you can make communication between different executor i
 local IBridgeFactory = loadstring(game:HttpGet("https://raw.githubusercontent.com/Sanek-Dev/Luau-IBridge/refs/heads/main/Source.luau"))()
 ```
 ## Usage Example
-Note: Dont forget to sometimes clear unused files inside workspace/${BridgesFolderName} folder (these can be deleted freely, especially do that if you use alot of instances)
+Note: Dont forget to sometimes clear unused files inside workspace/${BridgesFolderName} folder (these can be deleted freely, especially do that if you use alot of instances)<br/>
 *Server Code (every instance can be server and open client bridges to other instances at the same time):*
 ```luau
 local IBridgeFactory = loadstring(game:HttpGet("https://raw.githubusercontent.com/Sanek-Dev/Luau-IBridge/refs/heads/main/Source.luau"))()
