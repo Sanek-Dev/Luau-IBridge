@@ -8,6 +8,10 @@ function IsStringNullOrEmpty(str)
     return not str or typeof(str) ~= "string" or str:len() < 1
 end
 
+function ParamsTableGet(paramsTable, key, defaultValue)
+    return paramsTable and (paramsTable[key] or defaultValue) or defaultValue
+end
+
 function CheckApiFunc(funcName, libName)
     if not libName then
         return not IsStringNullOrEmpty(funcName) and getgenv()[funcName] and typeof(getgenv()[funcName]) == "function"
@@ -26,11 +30,17 @@ end
 
 function IsCryptSupported()
     return crypt and typeof(crypt) == "table" and crypt.encrypt and typeof(crypt.encrypt) == "function" and crypt.decrypt and typeof(crypt.decrypt) == "function"
+    and crypt.hash and typeof(crypt.hash) == "function"
 end
 
 -- Services & globals
 local HttpService = cloneref(game:GetService("HttpService"))
 local Players = cloneref(game:GetService("Players"))
+local CONSTANTS = {
+    ["LATEST_SIG"] = "ibridge_comm_packet_v1",
+    ["LATEST_ENC_SIG"] = 0xECC1BDF01
+}
+table.freeze(CONSTANTS)
 
 -- Modules
 -- IBridge
@@ -68,8 +78,10 @@ function IBridge.new(factory, fileName, dispatchTick)
     return bridge
 end
 
-function IBridge.GetPlayerUsername(Self)
-    return string.sub(Self.FileName, #Self.Factory:GetPrefix(), Self.FileName:len())
+function IBridge.IsLatestPacket(packetTable)
+    if not packetTable or typeof(packetTable) ~= "table" then return false end
+
+    return packetTable.sig and packetTable.sig == CONSTANTS.LATEST_SIG
 end
 
 function IBridge.ReadData(Self)
@@ -79,7 +91,35 @@ function IBridge.ReadData(Self)
     if IsStringNullOrEmpty(content) then return nil end
 
     if Self.Factory.UseEncryption then
-        content = crypt.decrypt(content, Self.Factory.EncryptionKey)
+        local buff = buffer.fromstring(content)
+        if not buff then
+            if isfile(Self.FilePath) then delfile(Self.FilePath) end
+            return nil
+        end
+
+        local encSig = buffer.readf64(buff, 0)
+        if encSig ~= CONSTANTS.LATEST_ENC_SIG then
+            if isfile(Self.FilePath) then delfile(Self.FilePath) end
+            return nil
+        end
+
+        local success = false
+        local ivSize = buffer.readf64(buff, 8)
+        local dataSize = buffer.readf64(buff, 16)
+        local iv = buffer.readstring(buff, 24, ivSize)
+        local data = buffer.readstring(buff, 24 + ivSize, dataSize)
+
+        success, content = pcall(crypt.decrypt, data, Self.Factory.EncryptionKey, iv)
+        if not success then
+            if isfile(Self.FilePath) then delfile(Self.FilePath) end
+            return nil
+        end
+    end
+
+    local success, ret = pcall(HttpService.JSONDecode, HttpService, content)
+    if not success or not ret or not IBridge.IsLatestPacket(ret) then
+        if isfile(Self.FilePath) then delfile(Self.FilePath) end -- just to be sure
+        return nil
     end
 
     return HttpService:JSONDecode(content)
@@ -101,7 +141,30 @@ function IBridge.WriteDataTable(Self, dataTable)
     local str = HttpService:JSONEncode(dataTable)
     if IsStringNullOrEmpty(str) then return false end
 
-    writefile(Self.FilePath, Self.Factory.UseEncryption and crypt.encrypt(str, Self.Factory.EncryptionKey) or str)
+    local data = str
+    if Self.Factory.UseEncryption then
+        local iv = nil
+        data, iv = crypt.encrypt(str, Self.Factory.EncryptionKey)
+        if IsStringNullOrEmpty(iv) then
+            warn("[IBridge.WriteDataTable] Failed to encrypt data: your executor\'s crypt.encrypt malfunctions")
+            return false
+        end
+
+        local buff = buffer.create(24 + #iv + #data)
+        if not buff then
+            warn("[IBridge.WriteDataTable] Failed to encrypt data: failed to allocate buffer")
+            return false
+        end
+
+        buffer.writef64(buff, 0, CONSTANTS.LATEST_ENC_SIG)
+        buffer.writef64(buff, 8, iv:len())
+        buffer.writef64(buff, 16, data:len())
+        buffer.writestring(buff, 24, iv)
+        buffer.writestring(buff, 24 + #iv, data)
+        data = buffer.tostring(buff)
+    end
+
+    writefile(Self.FilePath, data)
     return true
 end
 
@@ -123,6 +186,7 @@ function IBridge.WritePacket(Self, _type, body)
     end
 
     local dataTable = {
+        ["sig"] = CONSTANTS.LATEST_SIG,
         ["id"] = id,
         ["type"] = _type,
         ["sendTime"] = tick(),
@@ -224,23 +288,42 @@ end
 local IBridgeFactory = {}
 IBridgeFactory.__index = IBridgeFactory
 
-function IBridgeFactory.new(useEncryption: boolean?, encryptionKey: string?, bridgesDirectoryName: string?, filenamePrefix: string?)
+-- Structure of paramsTable:
+-- {
+--      ["UseEncryption"] = true,
+--      ["EncryptionKey"] = "Secret_Key123",
+--      ["HashAlgorithm"] = "sha256",
+--      ["DirectoryName"] = nil, -- Use default
+--      ["FilePrefix"] = nil -- Use default prefix
+-- }
+function IBridgeFactory.new(paramsTable)
+    if paramsTable and typeof(paramsTable) ~= "table" then
+        warn("[IBridgeFactory.new] Invalid params table!")
+        return nil
+    end
+
     if not Players.LocalPlayer then
         warn("[IBridgeFactory.new] Bridge factory cannot be created when there\'s no LocalPlayer!")
         return nil
     end
 
+    local useEncryption = ParamsTableGet(paramsTable, "UseEncryption", false)
+    if useEncryption and typeof(useEncryption) ~= "boolean" then useEncryption = true end
     if useEncryption and not IsCryptSupported() then
-        warn("[IBridgeFactory.new] Cannot use encryption because your executor doesn\'t support crypt library!")
+        warn("[IBridgeFactory.new] Cannot use encryption because your executor doesn\'t support crypt library or its functions!")
         return nil
     end
 
-    if useEncryption and IsStringNullOrEmpty(encryptionKey) then
-        warn("[IBridgeFactory.new] Invalid encryptionKey argument!")
+    local encryptionKey = ParamsTableGet(paramsTable, "EncryptionKey", nil)
+    if useEncryption and (IsStringNullOrEmpty(encryptionKey) or encryptionKey:len() < 7) then
+        warn("[IBridgeFactory.new] Invalid encryption key! (must be at least 7 characters long)")
         return nil
     end
 
-    local dirName = bridgesDirectoryName or "IBridge_Bridges"
+    local dirName = ParamsTableGet(paramsTable, "DirectoryName", "IBridge_Bridges")
+    local filePrefix = ParamsTableGet(paramsTable, "FilePrefix", "ibridge_")
+    local hashAlgorithm = ParamsTableGet(paramsTable, "HashAlgorithm", "sha256")
+
     if not isfolder(dirName) then makefolder(dirName) end
 
     if not getgenv().IBRIDGES_LOAD_STATUSES then
@@ -248,10 +331,11 @@ function IBridgeFactory.new(useEncryption: boolean?, encryptionKey: string?, bri
     end
 
     local factory = {
-        ["FilePrefix"] = filenamePrefix or "ibridge_",
+        ["FilePrefix"] = filePrefix,
         ["DirectoryName"] = dirName,
         ["UseEncryption"] = useEncryption,
         ["EncryptionKey"] = encryptionKey,
+        ["HashAlgorithm"] = hashAlgorithm,
         ["AllBridges"] = {}
     }
     setmetatable(factory, IBridgeFactory)
@@ -275,18 +359,41 @@ end
 
 -- One player instance can have only one IBridge at the time!
 function IBridgeFactory.CreateBridge(Self, dispatchTick)
-    if dispatchTick <= 0 then
-        warn("[IBridgeFactory.CreateBridge] Cannot create a bridge with negative dispatchTick!")
+    if dispatchTick and (typeof(dispatchTick) ~= "number" or dispatchTick <= 0) then
+        warn("[IBridgeFactory.CreateBridge] Cannot create a bridge with nil or negative dispatchTick!")
         return nil
     end
 
-    local bridge = IBridge.new(Self, Self:GetPrefix()..Players.LocalPlayer.Name..".txt", dispatchTick)
+    if not Players.LocalPlayer then
+        warn("[IBridgeFactory.CreateBridge] Bridge cannot be created when there\'s no LocalPlayer!")
+        return nil
+    end
+
+    local plrName = Players.LocalPlayer.Name
+    if Self.UseEncryption then
+        local success, ret = pcall(crypt.hash, plrName, Self.HashAlgorithm)
+        if not success or not ret then
+            warn("[IBridgeFactory.CreateBridge] Failed to hash player name"..(ret and ": "..ret or "!"))
+            return nil
+        end
+
+        plrName = ret
+    end
+
+    local bridge = IBridge.new(Self, Self:GetPrefix()..plrName..".txt", dispatchTick)
     if bridge then table.insert(Self.AllBridges, bridge) end
 
     return bridge
 end
 
 function IBridgeFactory.GetBridgeForPlayer(Self, playerUsername)
+    if Self.UseEncryption then
+        local success, ret = pcall(crypt.hash, playerUsername, Self.HashAlgorithm)
+        if not success or not ret then return nil end
+
+        playerUsername = ret
+    end
+
     local bridge = IBridge.new(Self, Self:GetPrefix()..playerUsername..".txt", -1)
     if bridge then table.insert(Self.AllBridges, bridge) end
 
