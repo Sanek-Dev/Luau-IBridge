@@ -30,7 +30,7 @@ end
 
 function IsCryptSupported()
     return crypt and typeof(crypt) == "table" and crypt.encrypt and typeof(crypt.encrypt) == "function" and crypt.decrypt and typeof(crypt.decrypt) == "function"
-    and crypt.hash and typeof(crypt.hash) == "function"
+    and crypt.hash and typeof(crypt.hash) == "function" and crypt.generatebytes and typeof(crypt.generatebytes) == "function"
 end
 
 -- Services & globals
@@ -71,7 +71,11 @@ function IBridge.new(factory, fileName, dispatchTick)
         ["LastDispatchedId"] = 0,
         ["DispatchThread"] = nil,
         ["DispatchTick"] = dispatchTick or 0.5,
-        ["DispatchActive"] = false
+        ["DispatchActive"] = false,
+        ["Stats"] = {
+            ["DispatchedPackets"] = 0,
+            ["SentPackets"] = 0
+        }
     }
     setmetatable(bridge, IBridge)
 
@@ -109,7 +113,7 @@ function IBridge.ReadData(Self)
         local iv = buffer.readstring(buff, 24, ivSize)
         local data = buffer.readstring(buff, 24 + ivSize, dataSize)
 
-        success, content = pcall(crypt.decrypt, data, Self.Factory.EncryptionKey, iv)
+        success, content = pcall(crypt.decrypt, data, Self.Factory.EncryptionKey, iv, Self.Factory.EncryptAlgorithm)
         if not success then
             if isfile(Self.FilePath) then delfile(Self.FilePath) end
             return nil
@@ -143,8 +147,8 @@ function IBridge.WriteDataTable(Self, dataTable)
 
     local data = str
     if Self.Factory.UseEncryption then
-        local iv = nil
-        data, iv = crypt.encrypt(str, Self.Factory.EncryptionKey)
+        local iv = crypt.generatebytes(16)
+        data, iv = crypt.encrypt(str, Self.Factory.EncryptionKey, iv, Self.Factory.EncryptAlgorithm)
         if IsStringNullOrEmpty(iv) then
             warn("[IBridge.WriteDataTable] Failed to encrypt data: your executor\'s crypt.encrypt malfunctions")
             return false
@@ -193,7 +197,10 @@ function IBridge.WritePacket(Self, _type, body)
         ["body"] = body
     }
     
-    return Self:WriteDataTable(dataTable)
+    local ret = Self:WriteDataTable(dataTable)
+    if ret then Self.Stats.SentPackets += 1 end
+
+    return ret
 end
 
 function IBridge.SendHeartbeat(Self) -- Not used yet
@@ -225,6 +232,7 @@ function IBridge.DispatchCode(Self)
     end
 
     Self.LastDispatchedId = packet.id
+    Self.Stats.DispatchedPackets += 1
     return ret
 end
 
@@ -284,6 +292,14 @@ function IBridge.CleanUp(Self)
     if isfile(Self.FilePath) then delfile(Self.FilePath) end
 end
 
+function IBridge.GetDispatchedPacketsCount(Self)
+    return Self.Stats.DispatchedPackets
+end
+
+function IBridge.GetSentPacketsCount(Self)
+    return Self.Stats.SentPackets
+end
+
 -- IBridgeFactory
 local IBridgeFactory = {}
 IBridgeFactory.__index = IBridgeFactory
@@ -293,6 +309,7 @@ IBridgeFactory.__index = IBridgeFactory
 --      ["UseEncryption"] = true,
 --      ["EncryptionKey"] = "Secret_Key123",
 --      ["HashAlgorithm"] = "sha256",
+--      ["EncryptAlgorithm"] = "",
 --      ["DirectoryName"] = nil, -- Use default
 --      ["FilePrefix"] = nil -- Use default prefix
 -- }
@@ -323,6 +340,7 @@ function IBridgeFactory.new(paramsTable)
     local dirName = ParamsTableGet(paramsTable, "DirectoryName", "IBridge_Bridges")
     local filePrefix = ParamsTableGet(paramsTable, "FilePrefix", "ibridge_")
     local hashAlgorithm = ParamsTableGet(paramsTable, "HashAlgorithm", "sha256")
+    local encryptAlgorithm = ParamsTableGet(paramsTable, "EncryptAlgorithm", nil)
 
     if not isfolder(dirName) then makefolder(dirName) end
 
@@ -336,6 +354,7 @@ function IBridgeFactory.new(paramsTable)
         ["UseEncryption"] = useEncryption,
         ["EncryptionKey"] = encryptionKey,
         ["HashAlgorithm"] = hashAlgorithm,
+        ["EncryptAlgorithm"] = encryptAlgorithm,
         ["AllBridges"] = {}
     }
     setmetatable(factory, IBridgeFactory)
