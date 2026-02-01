@@ -8,21 +8,40 @@ local IBridgeFactory = loadstring(game:HttpGet("https://raw.githubusercontent.co
 ```
 ## Usage Example
 Note: Dont forget to sometimes clear unused files inside workspace/${BridgesFolderName} folder (these can be deleted freely, especially do that if you use alot of instances)
+*Server Code (every instance can be server and open client bridges to other instances at the same time):*
 ```luau
 local IBridgeFactory = loadstring(game:HttpGet("https://raw.githubusercontent.com/Sanek-Dev/Luau-IBridge/refs/heads/main/Source.luau"))()
 local MainBridgeFactory = IBridgeFactory.new({
     ["UseEncryption"] = true,
-    ["EncryptionKey"] = "Secret_Key123" -- change that, if unsure, gen one key using crypt.generatekey() and paste it here, but DONT USE DIFFERENT KEYS in the same session
-})
+    ["EncryptionKey"] = "Secret_Key123"
+}) -- server and client must have the same factory params
 local ServerBridge = MainBridgeFactory:CreateBridge()
-if ServerBridge:StartDispatchThread() then
-    print("Started bridge server")
+if ServerBridge then
+    print("Started IBridge server")
+else
+    error("Failed to start IBridge server")
 end
 
-local sendComm = false -- set to true to send packet to an other instance
-if sendComm then
-    local CommBridge = MainBridgeFactory:GetBridgeForPlayer("PlayerUsername")
-    CommBridge:SendCode("print(\"Hello, Bridge World!\")")
-    print("Sent hello world to the other instance")
+-- This function does not block(yield) current thread
+if ServerBridge:StartDispatchThread() then
+    print("Listening to packets from other instances...")
+end
+```
+*Client Code:*
+```luau
+local IBridgeFactory = loadstring(game:HttpGet("https://raw.githubusercontent.com/Sanek-Dev/Luau-IBridge/refs/heads/main/Source.luau"))()
+local MainBridgeFactory = IBridgeFactory.new({
+    ["UseEncryption"] = true,
+    ["EncryptionKey"] = "Secret_Key123"
+}) -- server and client must have the same factory params
+local ClientBridge = MainBridgeFactory:GetBridgeForPlayer("PlayerUsername")
+if ClientBridge then
+    print("Opened client IBridge bridge")
+else
+    error("Failed to open client bridge!")
+end
+
+if ClientBridge:SendCode("print('Hello from "..game.Players.LocalPlayer.DisplayName.." instance!')") then
+    print("Sent print packet")
 end
 ```
