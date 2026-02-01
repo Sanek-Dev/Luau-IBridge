@@ -1,7 +1,7 @@
 # ⚠️ Disclaimer
 **This script can be very buggy as its based on files and _can't be reliable_.**
 # Luau-IBridge
-With help of this module you can make communication between different executor instances based on players' names
+With help of this module you can make communication between different executor instances based on players' names (File API in executor required)
 ## 🖊️ Loadstring
 ```luau
 local IBridgeFactory = loadstring(game:HttpGet("https://raw.githubusercontent.com/Sanek-Dev/Luau-IBridge/refs/heads/main/Source.luau"))()
