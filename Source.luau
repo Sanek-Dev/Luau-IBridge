@@ -147,8 +147,8 @@ function IBridge.WriteDataTable(Self, dataTable)
 
     local data = str
     if Self.Factory.UseEncryption then
-        local iv = nil
-        data, iv = crypt.encrypt(str, Self.Factory.EncryptionKey, nil, Self.Factory.EncryptAlgorithm)
+        local iv = crypt.generatebytes(16)
+        data, iv = crypt.encrypt(str, Self.Factory.EncryptionKey, iv, Self.Factory.EncryptAlgorithm)
         if IsStringNullOrEmpty(iv) then
             warn("[IBridge.WriteDataTable] Failed to encrypt data: your executor\'s crypt.encrypt malfunctions")
             return false
