@@ -118,6 +118,8 @@ function IBridge.ReadData(Self)
             if isfile(Self.FilePath) then delfile(Self.FilePath) end
             return nil
         end
+
+        content = base64decode(content)
     end
 
     local success, ret = pcall(HttpService.JSONDecode, HttpService, content)
@@ -148,7 +150,7 @@ function IBridge.WriteDataTable(Self, dataTable)
     local data = str
     if Self.Factory.UseEncryption then
         local iv = crypt.generatebytes(16)
-        data, iv = crypt.encrypt(str, Self.Factory.EncryptionKey, iv, Self.Factory.EncryptAlgorithm)
+        data, iv = crypt.encrypt(base64encode(str), Self.Factory.EncryptionKey, iv, Self.Factory.EncryptAlgorithm)
         if IsStringNullOrEmpty(iv) then
             warn("[IBridge.WriteDataTable] Failed to encrypt data: your executor\'s crypt.encrypt malfunctions")
             return false
